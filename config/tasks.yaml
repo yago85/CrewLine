@@ -1,0 +1,250 @@
+# =====================================================================
+# TASK REGISTRY
+# Tasks reference agents by key from agents.yaml.
+# {goal}, {project_context} and {plan} are substituted automatically from CLI.
+#
+# context: [task_key, ...]  — explicit dependencies.
+# Each task receives output only from tasks listed in context.
+# Only dependencies that are actually running in this session are used.
+#
+# async_execution: false — tasks run strictly sequentially.
+# Prevents "file contention": two agents won't write to the same file at once.
+# =====================================================================
+
+execute_plan:
+  async_execution: false
+  # No context — plan is passed via {plan} from file (--plan flag).
+  # Use instead of analyze_requirements + implement_solution when plan is ready.
+  description: >
+    Implement the solution strictly following the provided plan.
+    GOAL: {goal}
+    PROJECT CONTEXT: {project_context}
+
+    === IMPLEMENTATION PLAN ===
+    {plan}
+    === END OF PLAN ===
+
+    CRITICAL RULES:
+    - You MUST use the write_file tool to save EVERY file you create or modify.
+    - Do NOT just output code in your response — it will be lost. Only code saved via write_file counts.
+    - Use read_file to check existing files before modifying them.
+
+    Your actions:
+    1. Study the plan carefully — it contains architecture, file structure and logic
+    2. Use read_file to understand current project state
+    3. Implement each plan item sequentially
+    4. Save EVERY file using write_file tool
+    5. Follow existing project conventions
+    6. Don't deviate from the plan without good reason
+  expected_output: >
+    Implemented code per plan:
+    - List of created/modified files with contents
+    - Completion status for each plan item
+    - Key decisions (if deviations from plan — explain why)
+    - Run instructions
+  agent: senior_developer
+
+analyze_requirements:
+  async_execution: false
+  human_input: true # Pause: approve the architectural plan before coding starts
+  # No context — starting task, works from initial project context
+  description: >
+    Study the project context and task goal:
+    GOAL: {goal}
+    PROJECT CONTEXT: {project_context}
+
+    Your actions:
+    1. Use file tools to inspect the project directory structure
+    2. Read key files (README, main modules)
+    3. Describe current state of the codebase
+    4. Break the goal into 3-7 concrete technical subtasks
+    5. Identify potential risks and dependencies
+  expected_output: >
+    Structured technical plan:
+    - Analysis of current codebase state
+    - List of concrete subtasks with priorities
+    - Technical risks and dependencies
+    - Recommended technologies/approaches
+  agent: architect
+
+implement_solution:
+  async_execution: false
+  # Receives plan from architect — knows exactly what and how to do
+  context: [analyze_requirements]
+  description: >
+    Based on the architectural plan, implement the solution:
+    GOAL: {goal}
+    CONTEXT: {project_context}
+
+    CRITICAL RULES:
+    - You MUST use the write_file tool to save EVERY file you create or modify.
+    - Do NOT just output code in your response — it will be lost. Only code saved via write_file counts.
+    - Use read_file to check existing files before modifying them.
+
+    Your actions:
+    1. Read existing files with read_file to understand current state
+    2. Write clean, documented code
+    3. Save EVERY file using write_file tool — this is mandatory
+    4. Follow existing project conventions
+  expected_output: >
+    Implemented code with:
+    - List of files saved via write_file (with paths)
+    - Key architectural decisions description
+    - Run instructions
+  agent: senior_developer
+
+review_code:
+  async_execution: false
+  human_input: true # Pause: confirm reviewer's verdict before finishing
+  # Receives concrete code from developer — reviews the actual result.
+  # Works after both implement_solution and execute_plan —
+  # only dependencies actually running in this session are used.
+  context: [implement_solution, execute_plan]
+  description: >
+    Review the code written by the developer for the task:
+    GOAL: {goal}
+
+    Find and describe:
+    - Bugs and potential errors
+    - SOLID/DRY/KISS principle violations
+    - Security issues
+    - Performance problems
+    - Suggest concrete improvements with code examples
+  expected_output: >
+    Detailed review report:
+    - Critical issues (must fix)
+    - Recommendations (should fix)
+    - Approved parts of code
+    - Final verdict (approve/request_changes)
+  agent: code_reviewer
+
+fix_issues:
+  async_execution: false
+  # Receives the review report and fixes every issue listed in it.
+  # Use after review_code when you want a fully autonomous fix cycle.
+  context: [review_code, implement_solution, execute_plan]
+  description: >
+    Fix ALL issues found by the code reviewer.
+    GOAL: {goal}
+
+    CRITICAL RULES:
+    - Read the review report from context carefully — fix every "Critical issue" and every "Recommendation".
+    - You MUST use the write_file tool to save EVERY file you create or modify.
+    - Do NOT just output code in your response — it will be lost. Only code saved via write_file counts.
+    - Use read_file to check existing files before modifying them.
+
+    Your actions:
+    1. Read the review report from context
+    2. Read the relevant source files with read_file
+    3. Apply every fix, one issue at a time
+    4. Save every modified file with write_file
+    5. Do not break existing functionality while fixing — test logic mentally
+  expected_output: >
+    Fix summary:
+    - List of issues addressed (reference each from the review)
+    - Files modified with write_file (paths + brief description of changes)
+    - Any issues skipped and why (e.g. already correct)
+  agent: senior_developer
+
+final_review:
+  async_execution: false
+  # Verifies that all issues from review_code were actually fixed.
+  context: [review_code, fix_issues]
+  description: >
+    Verify that all issues found in the initial review have been fixed:
+    GOAL: {goal}
+
+    Cross-reference:
+    - Original review report (from review_code context)
+    - Fix summary (from fix_issues context)
+    - Read the relevant source files with read_file to confirm fixes
+
+    Check:
+    - Were all Critical issues resolved?
+    - Were Recommendations addressed?
+    - Did fixes introduce any new problems?
+  expected_output: >
+    Final verification report:
+    - Issues resolved: list with confirmation
+    - Issues not resolved or partially fixed: list with details
+    - New issues introduced (if any)
+    - Final verdict: APPROVED or NEEDS_WORK
+  agent: code_reviewer
+
+write_tests:
+  async_execution: false
+  # Knows the plan (what was planned), code (what was implemented), and reviewer notes.
+  context: [analyze_requirements, implement_solution, execute_plan, review_code]
+  description: >
+    Write tests for the implemented solution:
+    GOAL: {goal}
+    CONTEXT: {project_context}
+
+    CRITICAL RULES:
+    - You MUST use the write_file tool to save EVERY test file.
+    - Do NOT just output test code in your response — it will be lost.
+
+    Cover:
+    - Main usage scenarios
+    - Edge cases and errors from the review report
+    - Integration tests (if applicable)
+  expected_output: >
+    Test files saved via write_file:
+    - Unit tests (pytest)
+    - Coverage description
+    - Instructions for running tests
+  agent: qa_engineer
+
+write_documentation:
+  async_execution: false
+  # Documents the final result considering the full chain.
+  context: [analyze_requirements, implement_solution, execute_plan, review_code]
+  description: >
+    Write documentation for the implemented solution:
+    GOAL: {goal}
+    CONTEXT: {project_context}
+
+    CRITICAL RULES:
+    - You MUST use the write_file tool to save EVERY documentation file.
+    - Do NOT just output docs in your response — it will be lost.
+
+    Include:
+    - Description of what was done and why
+    - How to use the new functionality
+    - Code examples
+    - Updated README (if needed)
+  expected_output: >
+    Documentation files saved via write_file:
+    - Updated README or separate .md file
+    - Usage examples
+  agent: technical_writer
+
+validate_environment:
+  async_execution: false
+  # Final checkpoint — runs last.
+  # Catches "lost dependencies": agent wrote code with pyjwt
+  # but forgot to add it to requirements.txt.
+  context: [implement_solution, execute_plan]
+  description: >
+    Verify that the project environment is consistent after implementation:
+    GOAL: {goal}
+    CONTEXT: {project_context}
+
+    Your actions:
+    CRITICAL: Use read_file to inspect files. If you update requirements.txt, you MUST use write_file to save it.
+
+    1. Read all Python files with read_file and collect all import/from...import statements
+    2. Read requirements.txt (or pyproject.toml/setup.py) with read_file
+    3. Find third-party imports missing from the dependency file
+    4. Find dependencies in the file that are not imported anywhere (unused)
+    5. If discrepancies exist — update requirements.txt using write_file
+
+    Python standard library modules (os, sys, json, re, etc.) are built-in
+    and don't need to be in requirements.txt.
+  expected_output: >
+    Environment validation report:
+    - List of discrepancies found (imports without dependencies)
+    - List of unused dependencies (if any)
+    - Updated requirements.txt (if changes were made)
+    - Result: PASS (all consistent) or FIXED (corrections made)
+  agent: qa_engineer
