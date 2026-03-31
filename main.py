@@ -323,74 +323,211 @@ def dry_run(agents_config: dict, tasks_config: dict, selected_tasks: list[str],
 
 def interactive_setup(tasks_config: dict) -> dict:
     """Interactive wizard when no --project/--goal provided."""
-    print("\n╭─ CrewLine — Interactive Setup ─────────────────────────╮")
-    print("│  Press Enter to accept [default value]                  │")
+    try:
+        import questionary
+        from questionary import Style
+    except ImportError:
+        print("questionary not installed. Run: pip install questionary")
+        sys.exit(1)
+
+    # ── UI style ──────────────────────────────────────────────────────
+    custom_style = Style([
+        ("qmark",       "fg:#5f87ff bold"),
+        ("question",    "bold"),
+        ("answer",      "fg:#44d98e bold"),
+        ("pointer",     "fg:#5f87ff bold"),
+        ("highlighted", "fg:#5f87ff bold"),
+        ("selected",    "fg:#44d98e"),
+        ("separator",   "fg:#6c6c6c"),
+        ("instruction", "fg:#6c6c6c italic"),
+    ])
+
+    # ── Translations ──────────────────────────────────────────────────
+    T_EN = {
+        "header":    "CrewLine — Interactive Setup",
+        "hint":      "Arrows to navigate · Space to select · Enter to confirm",
+        "project_q": "Project path:",
+        "project_d": "./projects/example_project",
+        "project_e": "Not found: {path}. Try again.",
+        "goal_q":    "Goal (what should agents do?):",
+        "goal_e":    "Goal cannot be empty.",
+        "plan_q":    "Plan file path (optional, Enter to skip):",
+        "plan_e":    "Plan file not found: {path}. Ignored.",
+        "tasks_q":   "Select tasks to run:",
+        "hr_q":      "Human review mode:",
+        "hr_auto":   "Use per-task settings from tasks.yaml  (default)",
+        "hr_all":    "Pause after EVERY task  (manual review)",
+        "hr_none":   "Fully autonomous  (no pauses)",
+        "mem_q":     "Enable cross-session memory?",
+        "mem_info":  "Memory available  (embedder: {prov} · LLM: {llm})",
+        "mem_off":   "Memory unavailable: no embedder configured.\n"
+                     "  Set MEMORY_PROVIDER in .env or install Ollama + nomic-embed-text.",
+        "summary":   "\nReady to run:",
+        "s_project": "  Project  : {v}",
+        "s_goal":    "  Goal     : {v}",
+        "s_plan":    "  Plan     : {v}",
+        "s_tasks":   "  Tasks    : {v}",
+        "s_review":  "  Review   : {v}",
+        "s_memory":  "  Memory   : {v}",
+        "hr_labels": {"all": "all tasks", "none": "autonomous", "auto": "per-task (yaml)"},
+        "confirm_q": "Proceed?",
+        "abort":     "Aborted.",
+    }
+    T_RU = {
+        "header":    "CrewLine — Интерактивная настройка",
+        "hint":      "Стрелки для навигации · Пробел для выбора · Enter для подтверждения",
+        "project_q": "Путь к проекту:",
+        "project_d": "./projects/example_project",
+        "project_e": "Не найдено: {path}. Попробуйте ещё раз.",
+        "goal_q":    "Цель (что должны сделать агенты?):",
+        "goal_e":    "Цель не может быть пустой.",
+        "plan_q":    "Путь к файлу плана (необязательно, Enter — пропустить):",
+        "plan_e":    "Файл плана не найден: {path}. Игнорируется.",
+        "tasks_q":   "Выберите задачи для запуска:",
+        "hr_q":      "Режим проверки человеком:",
+        "hr_auto":   "По настройкам из tasks.yaml  (по умолчанию)",
+        "hr_all":    "Пауза после КАЖДОЙ задачи  (ручная проверка)",
+        "hr_none":   "Полная автономность  (без пауз)",
+        "mem_q":     "Включить кросс-сессионную память?",
+        "mem_info":  "Память доступна  (embedder: {prov} · LLM: {llm})",
+        "mem_off":   "Память недоступна: провайдер embedding не настроен.\n"
+                     "  Задайте MEMORY_PROVIDER в .env или установите Ollama + nomic-embed-text.",
+        "summary":   "\nГотово к запуску:",
+        "s_project": "  Проект   : {v}",
+        "s_goal":    "  Цель     : {v}",
+        "s_plan":    "  План     : {v}",
+        "s_tasks":   "  Задачи   : {v}",
+        "s_review":  "  Проверка : {v}",
+        "s_memory":  "  Память   : {v}",
+        "hr_labels": {"all": "все задачи", "none": "авто", "auto": "по умолчанию (yaml)"},
+        "confirm_q": "Запустить?",
+        "abort":     "Отменено.",
+    }
+
+    # ── Language selection ────────────────────────────────────────────
+    print("\n╭─ CrewLine ──────────────────────────────────────────────╮")
+    print("│                                                         │")
     print("╰─────────────────────────────────────────────────────────╯\n")
 
-    # Project path
+    lang_choice = questionary.select(
+        "Select language / Выберите язык:",
+        choices=["English", "Русский"],
+        style=custom_style,
+    ).ask()
+    if lang_choice is None:
+        sys.exit(0)
+    T = T_RU if lang_choice == "Русский" else T_EN
+
+    header = T["header"]
+    dashes = "─" * max(0, 49 - len(header))
+    print(f"\n╭─ {header} {dashes}╮")
+    print(f"│  {T['hint']:<53}│")
+    print("╰─────────────────────────────────────────────────────────╯\n")
+
+    # ── Project path ─────────────────────────────────────────────────
     while True:
-        project_raw = input("Project path [./projects/example_project]: ").strip()
-        project_path = Path(project_raw) if project_raw else Path("./projects/example_project")
+        project_raw = questionary.text(
+            T["project_q"],
+            default=T["project_d"],
+            style=custom_style,
+        ).ask()
+        if project_raw is None:
+            sys.exit(0)
+        project_path = Path(project_raw.strip())
         if project_path.exists():
             break
-        print(f"  ✗ Not found: {project_path}. Try again.")
+        print(f"  ✗ {T['project_e'].format(path=project_path)}")
 
-    # Goal
+    # ── Goal ─────────────────────────────────────────────────────────
     while True:
-        goal = input("Goal: ").strip()
+        goal = questionary.text(T["goal_q"], style=custom_style).ask()
+        if goal is None:
+            sys.exit(0)
+        goal = goal.strip()
         if goal:
             break
-        print("  ✗ Goal cannot be empty.")
+        print(f"  ✗ {T['goal_e']}")
 
-    # Plan file (optional)
-    plan_raw = input("Plan file (optional, press Enter to skip): ").strip()
-    plan_path = Path(plan_raw) if plan_raw else None
-    if plan_path and not plan_path.exists():
-        print(f"  ✗ Plan file not found: {plan_path}. Ignoring.")
-        plan_path = None
+    # ── Plan file ────────────────────────────────────────────────────
+    plan_raw = questionary.text(T["plan_q"], default="", style=custom_style).ask()
+    if plan_raw is None:
+        sys.exit(0)
+    plan_path = None
+    plan_raw = plan_raw.strip()
+    if plan_raw:
+        p = Path(plan_raw)
+        if p.exists():
+            plan_path = p
+        else:
+            print(f"  ✗ {T['plan_e'].format(path=p)}")
 
-    # Tasks
-    default_tasks = "execute_plan,review_code,fix_issues,final_review" if plan_path else "analyze_requirements,implement_solution,review_code,fix_issues,final_review"
-    print(f"\n  Available tasks (enter names separated by comma):")
-    for t in tasks_config.keys():
-        print(f"    {t}")
-    while True:
-        tasks_raw = input(f"Tasks [{default_tasks}]: ").strip()
-        selected_tasks = [t.strip() for t in tasks_raw.split(",")] if tasks_raw else default_tasks.split(",")
-        invalid = [t for t in selected_tasks if t not in tasks_config]
-        if not invalid:
-            break
-        print(f"  ✗ Unknown task(s): {', '.join(invalid)}. Pick names from the list above.")
+    # ── Tasks (checkbox multi-select) ─────────────────────────────────
+    default_task_names = (
+        ["execute_plan", "review_code", "fix_issues", "final_review"]
+        if plan_path
+        else ["analyze_requirements", "implement_solution", "write_tests",
+               "review_code", "fix_issues", "final_review"]
+    )
+    task_choices = [
+        questionary.Choice(title=name, value=name, checked=(name in default_task_names))
+        for name in tasks_config.keys()
+    ]
+    selected_tasks = questionary.checkbox(
+        T["tasks_q"],
+        choices=task_choices,
+        style=custom_style,
+    ).ask()
+    if selected_tasks is None:
+        sys.exit(0)
+    if not selected_tasks:
+        selected_tasks = default_task_names
 
-    # Human review
-    print("\n  Human review mode:")
-    print("   y   — pause after EVERY task")
-    print("   n   — fully autonomous (no pauses)")
-    print("  [Enter] — use per-task settings from tasks.yaml")
-    hr_raw = input("Human review [per-task]: ").strip().lower()
-    if hr_raw == "y":
-        human_review = True
-    elif hr_raw == "n":
-        human_review = False
-    else:
-        human_review = None
+    # ── Human review ─────────────────────────────────────────────────
+    hr_choice = questionary.select(
+        T["hr_q"],
+        choices=[
+            questionary.Choice(title=T["hr_auto"], value="auto"),
+            questionary.Choice(title=T["hr_all"],  value="all"),
+            questionary.Choice(title=T["hr_none"], value="none"),
+        ],
+        style=custom_style,
+    ).ask()
+    if hr_choice is None:
+        sys.exit(0)
+    human_review = True if hr_choice == "all" else (False if hr_choice == "none" else None)
 
-    # Memory
+    # ── Memory ───────────────────────────────────────────────────────
     embedder = _get_embedder()
     default_llm = os.getenv("DEFAULT_LLM", "claude-sonnet-4-6")
     raw_memory_llm = os.getenv("MEMORY_LLM") or os.getenv("MODEL_SMART", default_llm)
     memory_llm = _ensure_provider_prefix(raw_memory_llm)
     if embedder is not None:
         provider_name = embedder.get("provider", "unknown")
-        print(f"\nMemory available (embedder: {provider_name}, LLM: {memory_llm})")
-        mem_raw = input("Enable cross-session memory? [y/N]: ").strip().lower()
-        memory = mem_raw == "y"
+        print(f"\n  {T['mem_info'].format(prov=provider_name, llm=memory_llm)}")
+        memory = questionary.confirm(T["mem_q"], default=False, style=custom_style).ask()
+        if memory is None:
+            sys.exit(0)
     else:
-        print("\nMemory unavailable: no embedder provider detected.")
-        print("  Configure MEMORY_PROVIDER in .env or install Ollama with nomic-embed-text.")
+        print(f"\n  {T['mem_off']}")
         memory = False
 
+    # ── Summary ──────────────────────────────────────────────────────
+    hr_label = T["hr_labels"][hr_choice]
+    print(T["summary"])
+    print(T["s_project"].format(v=project_path))
+    print(T["s_goal"].format(v=goal))
+    if plan_path:
+        print(T["s_plan"].format(v=plan_path))
+    print(T["s_tasks"].format(v=", ".join(selected_tasks)))
+    print(T["s_review"].format(v=hr_label))
+    print(T["s_memory"].format(v="✓" if memory else "✗"))
+
+    confirmed = questionary.confirm(T["confirm_q"], default=True, style=custom_style).ask()
+    if not confirmed:
+        print(T["abort"])
+        sys.exit(0)
     print()
+
     return {
         "project": project_path,
         "goal": goal,
